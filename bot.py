@@ -12,7 +12,6 @@ import requests
 from pathlib import Path
 
 # ================== تنظیمات ==================
-# توجه: توکن اینجا نوشته شده تا کار کند. بعداً بهتر است به Secrets منتقل شود.
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") or "8926315451:AAGYLZ77g3SKwhFR5ve8rS8TPnv-W_p4suQ"
 CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID") or "-1003040950176"
 STATE_FILE = Path("state.json")
@@ -22,7 +21,7 @@ PERSIAN_EDITION = "fa.fooladvand"
 AUDIO_EDITION = "ar.abdulbasitmurattal"  # عبدالباسط مرتل
 
 API_BASE = "https://api.alquran.cloud/v1"
-AUDIO_CDN = "https://cdn.islamic.network/quran/audio/128"  # کیفیت ۱۲۸
+AUDIO_CDN = "https://cdn.islamic.network/quran/audio/192"  # کیفیت ۱۹۲ برای عبدالباسط
 
 # ================== توابع ==================
 
@@ -97,13 +96,12 @@ def main():
     page = state.get("current_page", 1)
 
     if page > 604:
-        page = 1  # بعد از ختم قرآن دوباره از اول
+        page = 1
 
     print(f"در حال پردازش صفحه {page} ...")
 
     ayahs, page_num = get_page_data(page)
 
-    # ساخت متن پیام
     header = f"📖 <b>صفحه {page_num} قرآن کریم</b>\n"
     header += f"صوت: استاد عبدالباسط عبدالصمد\n"
     header += "─" * 20 + "\n\n"
@@ -118,14 +116,12 @@ def main():
 
     full_text = header + "\n".join(body_parts)
 
-    # تلگرام محدودیت ۴۰۹۶ کاراکتر دارد
     if len(full_text) > 4000:
         full_text = header + "\n".join(body_parts[:8]) + "\n\n... (ادامه در صوت)"
 
     send_message(full_text)
     time.sleep(1)
 
-    # ارسال صوت آیات صفحه
     for a in ayahs:
         audio_url = f"{AUDIO_CDN}/{AUDIO_EDITION}/{a['number']}.mp3"
         caption = f"آیه {a['number_in_surah']} | سوره {a['surah_name']}"
@@ -135,7 +131,6 @@ def main():
         except Exception as e:
             print(f"خطا در ارسال صوت آیه {a['number']}: {e}")
 
-    # به‌روزرسانی صفحه بعدی
     state["current_page"] = page + 1
     save_state(state)
     print(f"صفحه {page} با موفقیت ارسال شد. صفحه بعدی: {page + 1}")
