@@ -12,8 +12,9 @@ import requests
 from pathlib import Path
 
 # ================== تنظیمات ==================
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID")
+# توجه: توکن اینجا نوشته شده تا کار کند. بعداً بهتر است به Secrets منتقل شود.
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") or "8926315451:AAGYLZ77g3SKwhFR5ve8rS8TPnv-W_p4suQ"
+CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID") or "-1003040950176"
 STATE_FILE = Path("state.json")
 
 ARABIC_EDITION = "quran-uthmani"
@@ -119,7 +120,6 @@ def main():
 
     # تلگرام محدودیت ۴۰۹۶ کاراکتر دارد
     if len(full_text) > 4000:
-        # اگر خیلی طولانی شد، فقط هدر + چند آیه اول
         full_text = header + "\n".join(body_parts[:8]) + "\n\n... (ادامه در صوت)"
 
     send_message(full_text)
@@ -131,7 +131,7 @@ def main():
         caption = f"آیه {a['number_in_surah']} | سوره {a['surah_name']}"
         try:
             send_audio(audio_url, caption)
-            time.sleep(1.5)  # جلوگیری از محدودیت تلگرام
+            time.sleep(1.5)
         except Exception as e:
             print(f"خطا در ارسال صوت آیه {a['number']}: {e}")
 
