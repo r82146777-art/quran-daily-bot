@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 ربات ارسال روزانه یک صفحه از قرآن کریم
-متن عربی + ترجمه فارسی (فولادوند) + صوت عبدالباسط
+متن عربی + ترجمه فارسی (فولادوند) + یک صوت کامل صفحه (عبدالباسط مرتل)
 """
 
 import os
@@ -18,10 +18,11 @@ STATE_FILE = Path("state.json")
 
 ARABIC_EDITION = "quran-uthmani"
 PERSIAN_EDITION = "fa.fooladvand"
-AUDIO_EDITION = "ar.abdulbasitmurattal"  # عبدالباسط مرتل
 
 API_BASE = "https://api.alquran.cloud/v1"
-AUDIO_CDN = "https://cdn.islamic.network/quran/audio/192"  # کیفیت ۱۹۲ برای عبدالباسط
+
+# صوت صفحه به صفحه عبدالباسط مرتل (آرشیو)
+PAGE_AUDIO_BASE = "https://archive.org/download/quran-by--abd-albasit--morattal--192-kb----604-part-full-quran-604-page--safah_89"
 
 # ================== توابع ==================
 
@@ -82,8 +83,10 @@ def send_audio(audio_url: str, caption: str = ""):
         "audio": audio_url,
         "caption": caption,
         "parse_mode": "HTML",
+        "title": caption,
+        "performer": "عبدالباسط عبدالصمد",
     }
-    r = requests.post(url, json=payload, timeout=60)
+    r = requests.post(url, json=payload, timeout=90)
     r.raise_for_status()
     return r.json()
 
@@ -102,8 +105,9 @@ def main():
 
     ayahs, page_num = get_page_data(page)
 
+    # ساخت متن پیام
     header = f"📖 <b>صفحه {page_num} قرآن کریم</b>\n"
-    header += f"صوت: استاد عبدالباسط عبدالصمد\n"
+    header += f"صوت کامل صفحه: استاد عبدالباسط عبدالصمد (مرتل)\n"
     header += "─" * 20 + "\n\n"
 
     body_parts = []
@@ -117,20 +121,31 @@ def main():
     full_text = header + "\n".join(body_parts)
 
     if len(full_text) > 4000:
-        full_text = header + "\n".join(body_parts[:8]) + "\n\n... (ادامه در صوت)"
+        full_text = header + "\n".join(body_parts[:10]) + "\n\n... (ادامه متن در صوت صفحه)"
 
+    # ارسال متن
     send_message(full_text)
-    time.sleep(1)
+    time.sleep(1.5)
 
-    for a in ayahs:
-        audio_url = f"{AUDIO_CDN}/{AUDIO_EDITION}/{a['number']}.mp3"
-        caption = f"آیه {a['number_in_surah']} | سوره {a['surah_name']}"
+    # ارسال یک صوت کامل برای کل صفحه
+    page_str = f"{page_num:03d}"  # 001, 002, ...
+    audio_url = f"{PAGE_AUDIO_BASE}/Page{page_str}_2.mp3"
+    caption = f"صفحه {page_num} قرآن کریم | عبدالباسط مرتل"
+
+    try:
+        send_audio(audio_url, caption)
+        print(f"صوت صفحه {page_num} ارسال شد.")
+    except Exception as e:
+        print(f"خطا در ارسال صوت صفحه {page_num}: {e}")
+        # تلاش با نام جایگزین
+        alt_url = f"{PAGE_AUDIO_BASE}/Page{page_str}.mp3"
         try:
-            send_audio(audio_url, caption)
-            time.sleep(1.5)
-        except Exception as e:
-            print(f"خطا در ارسال صوت آیه {a['number']}: {e}")
+            send_audio(alt_url, caption)
+            print(f"صوت صفحه {page_num} با نام جایگزین ارسال شد.")
+        except Exception as e2:
+            print(f"خطای نهایی صوت: {e2}")
 
+    # به‌روزرسانی صفحه بعدی
     state["current_page"] = page + 1
     save_state(state)
     print(f"صفحه {page} با موفقیت ارسال شد. صفحه بعدی: {page + 1}")
