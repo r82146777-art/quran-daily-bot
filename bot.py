@@ -14,8 +14,9 @@ from pathlib import Path
 
 import requests
 
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID", "").strip()
+# ترجیح با Secrets؛ در صورت خالی بودن از مقدار قبلی مخزن استفاده می‌شود
+BOT_TOKEN = (os.getenv("TELEGRAM_BOT_TOKEN") or "8926315451:AAGYLZ77g3SKwhFR5ve8rS8TPnv-W_p4suQ").strip()
+CHANNEL_ID = (os.getenv("TELEGRAM_CHANNEL_ID") or "-1003040950176").strip()
 STATE_FILE = Path("state.json")
 
 ARABIC_EDITION = "quran-uthmani"
@@ -46,10 +47,9 @@ def save_state(state):
 
 
 def next_page(state, today):
-    """صفحه بعدی را از state می‌گیرد؛ اگر امروز قبلاً ارسال شده باشد None برمی‌گرداند."""
     last_date = state.get("last_sent_date")
     if last_date == today.isoformat():
-        return None  # امروز قبلاً ارسال شده
+        return None
 
     last_page = state.get("last_sent_page")
     current = state.get("current_page")
@@ -59,7 +59,6 @@ def next_page(state, today):
     elif isinstance(current, int) and 1 <= current <= 604:
         page = current
     else:
-        # شروع از صفحه ۱ اگر state خالی باشد
         page = 1
 
     return page
@@ -121,7 +120,7 @@ def send_audio(audio_url: str, caption: str = ""):
 
 def main():
     if not BOT_TOKEN or not CHANNEL_ID:
-        raise ValueError("TELEGRAM_BOT_TOKEN و TELEGRAM_CHANNEL_ID باید در Secrets تنظیم شوند")
+        raise ValueError("TELEGRAM_BOT_TOKEN و TELEGRAM_CHANNEL_ID باید تنظیم شوند")
 
     today = tehran_today()
     state = load_state()
