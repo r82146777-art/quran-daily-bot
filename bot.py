@@ -2,44 +2,59 @@
 # -*- coding: utf-8 -*-
 """
 ربات ارسال روزانه یک صفحه از قرآن کریم
-متن عربی + ترجمه فارسی (فولادوند) + یک صوت کامل صفحه (عبدالباسط مرتل)
+متن عربی + ترجمه فارسی (فولادوند) + صوت کامل صفحه (عبدالباسط مرتل)
+صفحه بر اساس تاریخ تهران محاسبه می‌شود تا تکراری نشود.
 """
 
 import os
 import json
 import time
-import requests
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-# ================== تنظیمات ==================
+import requests
+
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") or "8926315451:AAGYLZ77g3SKwhFR5ve8rS8TPnv-W_p4suQ"
 CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID") or "-1003040950176"
 STATE_FILE = Path("state.json")
 
 ARABIC_EDITION = "quran-uthmani"
 PERSIAN_EDITION = "fa.fooladvand"
-
 API_BASE = "https://api.alquran.cloud/v1"
+PAGE_AUDIO_BASE = (
+    "https://archive.org/download/quran-by--abd-albasit--morattal--192-kb----604-part-full-quran-604-page--safah_89"
+)
 
-# صوت صفحه به صفحه عبدالباسط مرتل (آرشیو)
-PAGE_AUDIO_BASE = "https://archive.org/download/quran-by--abd-albasit--morattal--192-kb----604-part-full-quran-604-page--safah_89"
+# روز شروع چرخه (صفحه ۱). با عوض کردن این تاریخ می‌توان نقطه شروع را جابه‌جا کرد.
+EPOCH_DATE = datetime(2026, 8, 31).date()
+TEHRAN = timezone(timedelta(hours=3, minutes=30))
 
-# ================== توابع ==================
+
+def tehran_today():
+    return datetime.now(TEHRAN).date()
+
+
+def page_for_date(d):
+    days = (d - EPOCH_DATE).days
+    if days < 0:
+        days = 0
+    return (days % 604) + 1
+
 
 def load_state():
     if STATE_FILE.exists():
         with open(STATE_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-    return {"current_page": 1}
+    return {}
 
 
 def save_state(state):
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
+        f.write("\n")
 
 
 def get_page_data(page: int):
-    """گرفتن آیات یک صفحه با متن عربی و ترجمه فارسی"""
     url = f"{API_BASE}/page/{page}/{ARABIC_EDITION}"
     r = requests.get(url, timeout=30)
     r.raise_for_status()
@@ -52,14 +67,16 @@ def get_page_data(page: int):
 
     ayahs = []
     for ar_ayah, fa_ayah in zip(arabic_data["ayahs"], persian_data["ayahs"]):
-        ayahs.append({
-            "number": ar_ayah["number"],
-            "number_in_surah": ar_ayah["numberInSurah"],
-            "surah": ar_ayah["surah"]["number"],
-            "surah_name": ar_ayah["surah"]["name"],
-            "arabic": ar_ayah["text"],
-            "persian": fa_ayah["text"],
-        })
+        ayahs.append(
+            {
+                "number": ar_ayah["number"],
+                "number_in_surah": ar_ayah["numberInSurah"],
+                "surah": ar_ayah["surah"]["number"],
+                "surah_name": ar_ayah["surah"]["name"],
+                "arabic": ar_ayah["text"],
+                "persian": fa_ayah["text"],
+            }
+        )
     return ayahs, arabic_data.get("number", page)
 
 
@@ -95,19 +112,25 @@ def main():
     if not BOT_TOKEN or not CHANNEL_ID:
         raise ValueError("TELEGRAM_BOT_TOKEN و TELEGRAM_CHANNEL_ID باید تنظیم شوند")
 
+    today = tehran_today()
+    page = page_for_date(today)
+
     state = load_state()
-    page = state.get("current_page", 1)
+    last_sent_date = state.get("last_sent_date")
+    last_sent_page = state.get("last_sent_page")
 
-    if page > 604:
-        page = 1
+    # اگر امروز قبلاً همین صفحه ارسال شده، دوباره نفرست (جلوگیری از تکرار در اجرای دستی)
+    if last_sent_date == today.isoformat() and last_sent_page == page:
+        print(f"امروز ({today}) صفحه {page} قبلاً ارسال شده. رد می‌شود.")
+        return
 
-    print(f"در حال پردازش صفحه {page} ...")
+    print(f"تاریخ تهران: {today} | صفحه محاسبه‌شده: {page}")
 
     ayahs, page_num = get_page_data(page)
 
-    # ساخت متن پیام
     header = f"📖 <b>صفحه {page_num} قرآن کریم</b>\n"
-    header += f"صوت کامل صفحه: استاد عبدالباسط عبدالصمد (مرتل)\n"
+    header += f"تاریخ: {today.isoformat()}\n"
+    header += "صوت کامل صفحه: استاد عبدالباسط عبدالصمد (مرتل)\n"
     header += "─" * 20 + "\n\n"
 
     body_parts = []
@@ -119,16 +142,13 @@ def main():
         )
 
     full_text = header + "\n".join(body_parts)
-
     if len(full_text) > 4000:
         full_text = header + "\n".join(body_parts[:10]) + "\n\n... (ادامه متن در صوت صفحه)"
 
-    # ارسال متن
     send_message(full_text)
     time.sleep(1.5)
 
-    # ارسال یک صوت کامل برای کل صفحه
-    page_str = f"{page_num:03d}"  # 001, 002, ...
+    page_str = f"{page_num:03d}"
     audio_url = f"{PAGE_AUDIO_BASE}/Page{page_str}_2.mp3"
     caption = f"صفحه {page_num} قرآن کریم | عبدالباسط مرتل"
 
@@ -137,7 +157,6 @@ def main():
         print(f"صوت صفحه {page_num} ارسال شد.")
     except Exception as e:
         print(f"خطا در ارسال صوت صفحه {page_num}: {e}")
-        # تلاش با نام جایگزین
         alt_url = f"{PAGE_AUDIO_BASE}/Page{page_str}.mp3"
         try:
             send_audio(alt_url, caption)
@@ -145,10 +164,11 @@ def main():
         except Exception as e2:
             print(f"خطای نهایی صوت: {e2}")
 
-    # به‌روزرسانی صفحه بعدی
-    state["current_page"] = page + 1
+    state["last_sent_date"] = today.isoformat()
+    state["last_sent_page"] = page_num
+    state["current_page"] = page_num + 1 if page_num < 604 else 1
     save_state(state)
-    print(f"صفحه {page} با موفقیت ارسال شد. صفحه بعدی: {page + 1}")
+    print(f"صفحه {page_num} ارسال شد. صفحه بعدی برنامه‌ریزی‌شده: {state['current_page']}")
 
 
 if __name__ == "__main__":
