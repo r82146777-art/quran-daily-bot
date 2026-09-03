@@ -3,7 +3,7 @@
 """
 ربات ارسال روزانه یک صفحه از قرآن کریم
 متن عربی + ترجمه فارسی (فولادوند) + صوت کامل صفحه (عبدالباسط مرتل)
-صفحه بر اساس تاریخ تهران محاسبه می‌شود تا تکراری نشود.
+صفحه هر روز یکی جلو می‌رود و در state ذخیره می‌شود.
 """
 
 import os
@@ -14,8 +14,8 @@ from pathlib import Path
 
 import requests
 
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") or "8926315451:AAGYLZ77g3SKwhFR5ve8rS8TPnv-W_p4suQ"
-CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID") or "-1003040950176"
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID", "").strip()
 STATE_FILE = Path("state.json")
 
 ARABIC_EDITION = "quran-uthmani"
@@ -25,8 +25,6 @@ PAGE_AUDIO_BASE = (
     "https://archive.org/download/quran-by--abd-albasit--morattal--192-kb----604-part-full-quran-604-page--safah_89"
 )
 
-# روز شروع چرخه (صفحه ۱). با عوض کردن این تاریخ می‌توان نقطه شروع را جابه‌جا کرد.
-EPOCH_DATE = datetime(2026, 8, 31).date()
 TEHRAN = timezone(timedelta(hours=3, minutes=30))
 
 
@@ -34,24 +32,37 @@ def tehran_today():
     return datetime.now(TEHRAN).date()
 
 
-def page_for_date(d):
-    days = (d - EPOCH_DATE).days
-    if days < 0:
-        days = 0
-    return (days % 604) + 1
-
-
 def load_state():
     if STATE_FILE.exists():
         with open(STATE_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-    return {}
+    return {"current_page": 1, "last_sent_date": None, "last_sent_page": None}
 
 
 def save_state(state):
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
         f.write("\n")
+
+
+def next_page(state, today):
+    """صفحه بعدی را از state می‌گیرد؛ اگر امروز قبلاً ارسال شده باشد None برمی‌گرداند."""
+    last_date = state.get("last_sent_date")
+    if last_date == today.isoformat():
+        return None  # امروز قبلاً ارسال شده
+
+    last_page = state.get("last_sent_page")
+    current = state.get("current_page")
+
+    if isinstance(last_page, int) and 1 <= last_page <= 604:
+        page = last_page + 1 if last_page < 604 else 1
+    elif isinstance(current, int) and 1 <= current <= 604:
+        page = current
+    else:
+        # شروع از صفحه ۱ اگر state خالی باشد
+        page = 1
+
+    return page
 
 
 def get_page_data(page: int):
@@ -110,21 +121,17 @@ def send_audio(audio_url: str, caption: str = ""):
 
 def main():
     if not BOT_TOKEN or not CHANNEL_ID:
-        raise ValueError("TELEGRAM_BOT_TOKEN و TELEGRAM_CHANNEL_ID باید تنظیم شوند")
+        raise ValueError("TELEGRAM_BOT_TOKEN و TELEGRAM_CHANNEL_ID باید در Secrets تنظیم شوند")
 
     today = tehran_today()
-    page = page_for_date(today)
-
     state = load_state()
-    last_sent_date = state.get("last_sent_date")
-    last_sent_page = state.get("last_sent_page")
+    page = next_page(state, today)
 
-    # اگر امروز قبلاً همین صفحه ارسال شده، دوباره نفرست (جلوگیری از تکرار در اجرای دستی)
-    if last_sent_date == today.isoformat() and last_sent_page == page:
-        print(f"امروز ({today}) صفحه {page} قبلاً ارسال شده. رد می‌شود.")
+    if page is None:
+        print(f"امروز ({today}) قبلاً ارسال شده (صفحه {state.get('last_sent_page')}). رد می‌شود.")
         return
 
-    print(f"تاریخ تهران: {today} | صفحه محاسبه‌شده: {page}")
+    print(f"تاریخ تهران: {today} | صفحه: {page}")
 
     ayahs, page_num = get_page_data(page)
 
@@ -164,11 +171,12 @@ def main():
         except Exception as e2:
             print(f"خطای نهایی صوت: {e2}")
 
+    next_p = page_num + 1 if page_num < 604 else 1
     state["last_sent_date"] = today.isoformat()
     state["last_sent_page"] = page_num
-    state["current_page"] = page_num + 1 if page_num < 604 else 1
+    state["current_page"] = next_p
     save_state(state)
-    print(f"صفحه {page_num} ارسال شد. صفحه بعدی برنامه‌ریزی‌شده: {state['current_page']}")
+    print(f"صفحه {page_num} ارسال شد. صفحه بعدی: {next_p}")
 
 
 if __name__ == "__main__":
